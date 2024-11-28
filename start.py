@@ -1,16 +1,8 @@
-from cookie_analyzer.core import crawl_website, classify_cookies
-from cookie_analyzer.database import load_cookie_database
-
+from cookie_analyzer.interface import analyze_website
 if __name__ == "__main__":
 
-    # Lade die Cookie-Datenbank
-    cookie_database = load_cookie_database("Open-Cookie-Database.csv")
-
-    # Scanne eine Website
-    cookies, local_storage = crawl_website("https://www.example.com", max_pages=1)
-
-    # Klassifiziere Cookies
-    classified_cookies = classify_cookies(cookies, cookie_database)
+    # scanne die Website und klassifiziere Cookies
+    classified_cookies, local_storage = analyze_website("https://www.planitprima.com", max_pages=1, database_path="Open-Cookie-Database.csv")
 
     # Ausgabe der Ergebnisse
     print("\n--- Cookie-Analyse ---")
