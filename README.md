@@ -49,8 +49,11 @@ python start.py
 
 Sie können die Funktionen des Tools in Ihrem eigenen Projekt nutzen. Hier ist ein Beispiel:
 
+```python
 from cookie_analyzer.core import crawl_website, classify_cookies
+from cookie_analyzer.interface import analyze_website
 from cookie_analyzer.database import load_cookie_database
+
 
 # Lade die Cookie-Datenbank
 cookie_database = load_cookie_database("Open-Cookie-Database.csv")
@@ -61,39 +64,15 @@ cookies, local_storage = crawl_website("https://www.example.com", max_pages=1)
 # Klassifiziere Cookies
 classified_cookies = classify_cookies(cookies, cookie_database)
 
-# Ausgabe der Ergebnisse
-print("\n--- Cookie-Analyse ---")
-for category, cookie_list in classified_cookies.items():
-    print(f"\n{category} ({len(cookie_list)}):")
-    for cookie in cookie_list:
-        print(f"- {cookie['name']}:")
-        print(f"  Beschreibung: {cookie.get('description', 'Keine Beschreibung')}")
-        print(f"  Kategorie: {cookie.get('category', 'Unbekannt')}")
-        print(f"  Ablaufzeit: {cookie.get('expiration', 'Unbekannt')}")
-        print(f"  Anbieter: {cookie.get('vendor', 'Unbekannt')}")
-        print(f"  Datenschutzrichtlinie: {cookie.get('privacy_policy', 'Keine Datenschutzrichtlinie')}")
-        print(f"  Wildcard-Match: {'Ja' if cookie.get('wildcard') else 'Nein'}")
-
-Verzeichnisstruktur
-
-cookie-analyzer/
-├── cookie_analyzer/             # Hauptmodul
-│   ├── __init__.py              # Initialisiert das Modul
-│   ├── core.py                  # Enthält die Hauptfunktionen
-│   ├── database.py              # Funktionen zur Datenbankverwaltung
-├── tests/                       # Tests für das Modul
-│   ├── __init__.py
-│   └── test_core.py             # Tests für die Hauptfunktionen
-├── start.py                     # Beispielskript
-├── LICENSE                      # Lizenz (Apache 2.0)
-├── README.md                    # Projektbeschreibung
-├── requirements.txt             # Python-Abhängigkeiten
-└── Open-Cookie-Database.csv     # Cookie-Datenbank
+# Alle Funktionen auf einmal
+classified_cookies, local_storage = analyze_website("https://www.example.com", max_pages=1, database_path="Open-Cookie-Database.csv")
+```
 
 Beispielausgabe
 
 Nach dem Ausführen von start.py könnte die Ausgabe wie folgt aussehen:
 
+```text
 --- Cookie-Analyse ---
 
 Strictly Necessary (1):
@@ -109,7 +88,7 @@ Strictly Necessary (1):
 
 Local Storage für https://www.example.com:
 - userPreference: dark_mode
-
+```
 Hinweise
 robots.txt-Berücksichtigung
 
