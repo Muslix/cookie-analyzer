@@ -37,6 +37,22 @@ def main():
     parser.add_argument("-a", "--all-available", action="store_true",
                         help="Zeigt auch potenziell verfügbare Cookies an")
     
+    # Neue Argumente für erweiterte Funktionen
+    parser.add_argument("-s", "--selenium", action="store_true", 
+                        help="Verwendet Selenium für erweiterte Cookie-Erfassung und Consent-Interaktion")
+    parser.add_argument("--async", dest="use_async", action="store_true", 
+                        help="Verwendet asynchrone Verarbeitung für bessere Performance bei mehreren Seiten")
+    parser.add_argument("--no-consent", action="store_true", 
+                        help="Deaktiviert die automatische Interaktion mit Cookie-Consent-Bannern")
+    parser.add_argument("--show-browser", action="store_true", 
+                        help="Zeigt den Browser während der Analyse (kein Headless-Modus)")
+    parser.add_argument("--fingerprinting", action="store_true", 
+                        help="Analysiert und zeigt potenzielle Fingerprinting-Techniken")
+    parser.add_argument("--dynamic", action="store_true", 
+                        help="Zeigt dynamisch gesetzte Cookies getrennt an")
+    parser.add_argument("--full", action="store_true",
+                        help="Aktiviert alle Analyse-Features (Selenium, Fingerprinting, dynamische Cookies)")
+    
     args = parser.parse_args()
     
     # Zeige alternative Datenbanken an, wenn gewünscht
@@ -74,24 +90,52 @@ def main():
     # Verwende die validierte URL
     url = validated_url
     
+    # Wenn --full angegeben oder wenn keine speziellen Parameter angegeben wurden, 
+    # aktiviere alle Features
+    if args.full or (not any([args.selenium, args.use_async, args.fingerprinting, args.dynamic])):
+        args.selenium = True
+        args.fingerprinting = True
+        args.dynamic = True
+    
     respect_robots = not args.no_robots
-    logger.info(f"Starte Analyse von {url} mit max. {args.pages} Seiten (robots.txt {'wird beachtet' if respect_robots else 'wird ignoriert'})")
+    crawler_type = "selenium" if args.selenium else ("playwright_async" if args.use_async else "playwright")
+    
+    logger.info(f"Starte Analyse von {url} mit max. {args.pages} Seiten "
+               f"(robots.txt {'wird beachtet' if respect_robots else 'wird ignoriert'}, "
+               f"Crawler-Typ: {crawler_type})")
     
     # Website analysieren
     try:
-        classified_cookies, local_storage = analyze_website(
+        classified_cookies, storage_data = analyze_website(
             url, 
             max_pages=args.pages, 
             database_path=args.database,
+            use_async=args.use_async,
+            use_selenium=args.selenium,
+            interact_with_consent=not args.no_consent,
+            headless=not args.show_browser
         )
+        
+        # Fingerprinting-Analyse durchführen, wenn gewünscht
+        fingerprinting_data = None
+        if args.fingerprinting:
+            from cookie_analyzer.services import get_cookie_classifier_service
+            cookie_classifier = get_cookie_classifier_service()
+            all_cookies = []
+            for category, cookies in classified_cookies.items():
+                all_cookies.extend(cookies)
+            fingerprinting_data = cookie_classifier.identify_fingerprinting(all_cookies, storage_data)
         
         # Ergebnis für die Ausgabe aufbereiten
         result = {
             "cookies": classified_cookies,
-            "local_storage": local_storage
+            "storage": storage_data
         }
         
-        if args.all_available:
+        if fingerprinting_data:
+            result["fingerprinting"] = fingerprinting_data
+            
+        if args.all_available and 'available_cookies' in locals():
             result["available_cookies"] = available_cookies
         
         # In Datei speichern, wenn gewünscht
@@ -111,10 +155,11 @@ def main():
                     print(f"- {cookie['name']}:")
                     print(f"  Beschreibung: {cookie.get('description', 'Keine Beschreibung')}")
                     print(f"  Kategorie: {cookie.get('category', 'Unbekannt')}")
+                    print(f"  Klassifizierungsmethode: {cookie.get('classification_method', 'Unbekannt')}")
                     print(f"  Ablaufzeit: {cookie.get('expires', 'Unbekannt')}")
                     print(f"  Domain: {cookie.get('domain', 'Unbekannt')}")
                     
-            if args.all_available and available_cookies:
+            if args.all_available and 'available_cookies' in locals():
                 print("\n=== Verfügbare/Mögliche Cookies ===")
                 print("Diese Cookies könnten gesetzt werden, wenn der Benutzer zustimmt:\n")
                 for category, cookie_list in available_cookies.items():
@@ -128,16 +173,48 @@ def main():
                             print(f"  Ablaufzeit: {cookie.get('expiration', 'Unbekannt')}")
                             if 'domain' in cookie:
                                 print(f"  Domain: {cookie['domain']}")
-                    
-            print("\n=== Local Storage ===")
-            for url, storage in local_storage.items():
-                print(f"\nLocal Storage für {url}:")
-                if not storage:  # Prüfe, ob Storage leer ist
-                    print("  Keine Einträge gefunden")
-                else:
-                    for key, value in storage.items():
+            
+            # Web Storage-Ausgabe
+            print("\n=== Web Storage ===")
+            for url, storage in storage_data.items():
+                print(f"\nStorage für {url}:")
+                
+                # Local Storage
+                local_storage = storage.get("localStorage", {})
+                if local_storage:
+                    print("\nLocal Storage:")
+                    for key, value in local_storage.items():
                         print(f"- {key}: {value}")
-                    
+                else:
+                    print("Keine Local Storage-Einträge gefunden")
+                
+                # Session Storage (nur bei Selenium)
+                session_storage = storage.get("sessionStorage", {})
+                if session_storage:
+                    print("\nSession Storage:")
+                    for key, value in session_storage.items():
+                        print(f"- {key}: {value}")
+                
+                # Dynamische Cookies (nur bei Selenium und wenn --dynamic angegeben)
+                if args.dynamic and "dynamicCookies" in storage:
+                    dynamic_cookies = storage.get("dynamicCookies", [])
+                    if dynamic_cookies:
+                        print("\nDynamisch gesetzte Cookies:")
+                        for cookie in dynamic_cookies:
+                            print(f"- {cookie['name']}: {cookie.get('value', '(kein Wert)')}")
+            
+            # Fingerprinting-Ausgabe
+            if fingerprinting_data:
+                print("\n=== Fingerprinting-Analyse ===")
+                fingerprinting_detected = any(fingerprinting_data.values())
+                if fingerprinting_detected:
+                    print("Potenzielle Fingerprinting-Techniken erkannt:")
+                    for tech, detected in fingerprinting_data.items():
+                        if detected:
+                            print(f"- {tech.replace('_', ' ').title()}")
+                else:
+                    print("Keine Fingerprinting-Techniken erkannt.")
+                
     except Exception as e:
         logger.error(f"Fehler bei der Analyse: {e}")
         sys.exit(1)
