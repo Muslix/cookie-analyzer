@@ -2,3 +2,4 @@ requests
 playwright
 tldextract
 beautifulsoup4
+selenium
