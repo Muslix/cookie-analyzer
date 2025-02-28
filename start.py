@@ -79,11 +79,10 @@ def main():
     
     # Website analysieren
     try:
-        classified_cookies, local_storage, available_cookies = analyze_website(
+        classified_cookies, local_storage = analyze_website(
             url, 
             max_pages=args.pages, 
             database_path=args.database,
-            show_available=args.all_available
         )
         
         # Ergebnis für die Ausgabe aufbereiten

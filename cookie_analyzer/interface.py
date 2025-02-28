@@ -79,7 +79,7 @@ def cli_main() -> None:
             max_pages=args.pages, 
             database_path=args.database
         )
-        
+        logger.info("Analyse erfolgreich abgeschlossen")
         # Ausgabe im gewünschten Format
         if args.json:
             # JSON-Ausgabe
