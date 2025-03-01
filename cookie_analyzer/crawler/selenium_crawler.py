@@ -228,17 +228,62 @@ class SeleniumCookieCrawler:
         except Exception as e:
             logger.error(f"Fehler beim Überwachen dynamischer Cookies: {e}")
             return []
-    
-    def scan_single_page(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+
+    def get_cookies_and_storage(self, driver: webdriver.Chrome, url: str) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
-        Scannt nur die eingegebene Seite auf Cookies und Storage-Daten.
+        Erfasst Cookies und Storage-Daten einer Seite.
         
+        Args:
+            driver (webdriver.Chrome): Der Selenium WebDriver.
+            url (str): Die URL der Seite.
+            
         Returns:
             Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]: Cookies und Storage-Daten.
         """
+        # Cookies abrufen
+        selenium_cookies = driver.get_cookies()
+        cookies = [
+            {
+                "name": cookie["name"],
+                "value": cookie["value"],
+                "domain": cookie.get("domain", ""),
+                "path": cookie.get("path", "/"),
+                "expires": cookie.get("expiry", -1),
+                "secure": cookie.get("secure", False),
+                "httpOnly": cookie.get("httpOnly", False)
+            }
+            for cookie in selenium_cookies
+        ]
+        
+        # Storage-Daten abrufen
+        local_storage = self.get_local_storage(driver)
+        session_storage = self.get_session_storage(driver)
+        dynamic_cookies = self.get_dynamic_cookies(driver)
+        
+        # Storage-Daten zusammenfassen
+        storage = {
+            "localStorage": local_storage,
+            "sessionStorage": session_storage,
+            "dynamicCookies": dynamic_cookies
+        }
+        
+        all_storage = {url: storage}
+        
+        return cookies, all_storage
+    
+    def scan_single_page(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        """
+        Scannt nur die eingegebene Seite auf Cookies und Storage-Daten, vor und nach der Consent-Interaktion.
+        
+        Returns:
+            Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[str, Any]]]: 
+            Cookies vor Consent, Storage vor Consent, Cookies nach Consent, Storage nach Consent.
+        """
         logger.info(f"Scanne nur die eingegebene Seite mit Selenium: {self.start_url}")
-        cookies = []
-        all_storage = {}
+        pre_consent_cookies = []
+        pre_consent_storage = {}
+        post_consent_cookies = []
+        post_consent_storage = {}
         
         # Chrome-Optionen konfigurieren
         options = Options()
@@ -259,38 +304,37 @@ class SeleniumCookieCrawler:
             # Seite laden
             driver.get(self.start_url)
             
+            # Warten, damit die Seite und mögliche Cookies geladen werden
+            time.sleep(2)
+            
+            # PHASE 1: Cookies und Storage vor der Consent-Interaktion erfassen
+            logger.info("Erfasse Cookies vor der Consent-Interaktion")
+            pre_consent_cookies, pre_consent_storage = self.get_cookies_and_storage(driver, self.start_url)
+            
+            # Identifizieren des Consent-Managers (nur für Logging-Zwecke)
+            consent_manager_name = self.consent_manager.detect_consent_manager(driver)
+            if consent_manager_name != "Unknown":
+                logger.info(f"Consent-Manager erkannt: {consent_manager_name}")
+            
             # Mit Cookie-Consent-Bannern interagieren
             if self.interact_with_consent:
-                self.consent_manager.interact_with_consent(driver)
+                interaction_succeeded = self.consent_manager.interact_with_consent(driver)
+                if interaction_succeeded:
+                    logger.info("Erfolgreich mit dem Consent-Banner interagiert")
+                else:
+                    logger.warning("Keine Interaktion mit dem Consent-Banner möglich oder kein Banner gefunden")
+                
                 # Warte kurz, um sicherzustellen, dass Cookies aktualisiert werden
-                time.sleep(1)
-            
-            # Cookies und Storage abrufen
-            selenium_cookies = driver.get_cookies()
-            cookies = [
-                {
-                    "name": cookie["name"],
-                    "value": cookie["value"],
-                    "domain": cookie.get("domain", ""),
-                    "path": cookie.get("path", "/"),
-                    "expires": cookie.get("expiry", -1),
-                    "secure": cookie.get("secure", False),
-                    "httpOnly": cookie.get("httpOnly", False)
-                }
-                for cookie in selenium_cookies
-            ]
-            
-            # Storage-Daten abrufen
-            local_storage = self.get_local_storage(driver)
-            session_storage = self.get_session_storage(driver)
-            dynamic_cookies = self.get_dynamic_cookies(driver)
-            
-            # Storage-Daten zusammenfassen
-            all_storage[self.start_url] = {
-                "localStorage": local_storage,
-                "sessionStorage": session_storage,
-                "dynamicCookies": dynamic_cookies
-            }
+                time.sleep(2)
+                
+                # PHASE 2: Cookies und Storage nach der Consent-Interaktion erfassen
+                logger.info("Erfasse Cookies nach der Consent-Interaktion")
+                post_consent_cookies, post_consent_storage = self.get_cookies_and_storage(driver, self.start_url)
+            else:
+                logger.info("Consent-Interaktion ist deaktiviert, überspringe Phase 2")
+                # Setze die Post-Consent-Daten auf die Pre-Consent-Daten, wenn keine Interaktion stattfindet
+                post_consent_cookies = pre_consent_cookies
+                post_consent_storage = pre_consent_storage
         
         except Exception as e:
             logger.error(f"Fehler beim Scannen der Seite mit Selenium: {e}")
@@ -299,23 +343,32 @@ class SeleniumCookieCrawler:
             # Browser schließen
             driver.quit()
             
-        return cookies, all_storage
+        return pre_consent_cookies, pre_consent_storage, post_consent_cookies, post_consent_storage
     
     def crawl(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
-        Crawlt eine Website mit Selenium und sammelt Cookies und Storage-Daten.
+        Crawlt eine Website mit Selenium und sammelt Cookies und Storage-Daten. Diese Methode gibt nur den
+        finalen Status zurück (nach der Consent-Interaktion).
         
         Returns:
-            Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]: Cookies und Storage-Daten.
+            Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+            Cookies nach Consent, Storage nach Consent.
+            
+        Hinweis:
+            Für eine detaillierte Analyse vor und nach der Consent-Interaktion verwenden Sie scan_single_page().
         """
         if self.respect_robots and self.rp and not self.is_allowed_by_robots(self.start_url):
             logger.warning("Crawling ist laut robots.txt verboten. Es wird nur die eingegebene Seite gescannt.")
-            return self.scan_single_page()
+            # Für kompatibilität mit der standard-API nur die Nach-Consent-Daten zurückgeben
+            _, _, post_consent_cookies, post_consent_storage = self.scan_single_page()
+            return post_consent_cookies, post_consent_storage
         
         visited = set()
         to_visit = [self.start_url]
-        all_cookies = []
-        all_storage = {}
+        pre_consent_cookies = []
+        pre_consent_storage = {}
+        post_consent_cookies = []
+        post_consent_storage = {}
         
         # Chrome-Optionen konfigurieren
         options = Options()
@@ -333,6 +386,51 @@ class SeleniumCookieCrawler:
             driver = webdriver.Chrome(options=options)
         
         try:
+            # Erst nur die Startseite scannen mit dem zweistufigen Prozess
+            logger.info(f"Starte zweistufigen Scan der Startseite: {self.start_url}")
+            
+            # Seite laden
+            driver.get(self.start_url)
+            visited.add(self.start_url)
+            
+            # Warten, damit die Seite und mögliche Cookies geladen werden
+            time.sleep(2)
+            
+            # PHASE 1: Cookies und Storage vor der Consent-Interaktion erfassen
+            logger.info("Erfasse Cookies vor der Consent-Interaktion")
+            page_pre_cookies, page_pre_storage = self.get_cookies_and_storage(driver, self.start_url)
+            pre_consent_cookies.extend(page_pre_cookies)
+            pre_consent_storage.update(page_pre_storage)
+            
+            # Identifizieren des Consent-Managers (nur für Logging-Zwecke)
+            consent_manager_name = self.consent_manager.detect_consent_manager(driver)
+            if consent_manager_name != "Unknown":
+                logger.info(f"Consent-Manager erkannt: {consent_manager_name}")
+            
+            # Mit Cookie-Consent-Bannern interagieren
+            if self.interact_with_consent:
+                interaction_succeeded = self.consent_manager.interact_with_consent(driver)
+                if interaction_succeeded:
+                    logger.info("Erfolgreich mit dem Consent-Banner interagiert")
+                else:
+                    logger.warning("Keine Interaktion mit dem Consent-Banner möglich oder kein Banner gefunden")
+                
+                # Warte kurz, um sicherzustellen, dass Cookies aktualisiert werden
+                time.sleep(2)
+            
+            # Links von der Startseite sammeln
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+            for link in soup.find_all("a", href=True):
+                href = link["href"]
+                if not href or href.startswith("#") or href.startswith("javascript:"):
+                    continue
+                    
+                full_url = urljoin(self.start_url, href)
+                if self.is_internal_link(full_url) and full_url not in visited and len(visited) < self.max_pages:
+                    to_visit.append(full_url)
+            
+            # Crawl weitere Seiten nach Consent-Interaktion (nur, wenn Consent bereits erfolgt ist)
             while to_visit and len(visited) < self.max_pages:
                 url = to_visit.pop(0)
                 if url in visited:
@@ -342,48 +440,22 @@ class SeleniumCookieCrawler:
                     logger.warning(f"robots.txt verbietet das Crawlen von: {url}")
                     continue
                     
-                logger.info(f"Scanne mit Selenium: {url}")
+                logger.info(f"Scanne mit Selenium (nach Consent): {url}")
                 visited.add(url)
                 
                 try:
                     # Seite laden
                     driver.get(url)
                     
-                    # Mit Cookie-Consent-Bannern interagieren
-                    if self.interact_with_consent:
-                        self.consent_manager.interact_with_consent(driver)
-                        # Warte kurz, um sicherzustellen, dass Cookies aktualisiert werden
-                        time.sleep(1)
+                    # Warte kurz, damit die Seite geladen wird
+                    time.sleep(2)
                     
-                    # Cookies und Storage abrufen
-                    selenium_cookies = driver.get_cookies()
-                    page_cookies = [
-                        {
-                            "name": cookie["name"],
-                            "value": cookie["value"],
-                            "domain": cookie.get("domain", ""),
-                            "path": cookie.get("path", "/"),
-                            "expires": cookie.get("expiry", -1),
-                            "secure": cookie.get("secure", False),
-                            "httpOnly": cookie.get("httpOnly", False)
-                        }
-                        for cookie in selenium_cookies
-                    ]
-                    all_cookies.extend(page_cookies)
+                    # Cookies und Storage nach der Consent-Interaktion erfassen
+                    page_cookies, page_storage = self.get_cookies_and_storage(driver, url)
+                    post_consent_cookies.extend(page_cookies)
+                    post_consent_storage.update(page_storage)
                     
-                    # Storage-Daten abrufen
-                    local_storage = self.get_local_storage(driver)
-                    session_storage = self.get_session_storage(driver)
-                    dynamic_cookies = self.get_dynamic_cookies(driver)
-                    
-                    # Storage-Daten zusammenfassen
-                    all_storage[url] = {
-                        "localStorage": local_storage,
-                        "sessionStorage": session_storage,
-                        "dynamicCookies": dynamic_cookies
-                    }
-                    
-                    # Links extrahieren
+                    # Links extrahieren für weitere Seiten
                     html = driver.page_source
                     soup = BeautifulSoup(html, "html.parser")
                     for link in soup.find_all("a", href=True):
@@ -392,21 +464,36 @@ class SeleniumCookieCrawler:
                             continue
                             
                         full_url = urljoin(url, href)
-                        if self.is_internal_link(full_url) and full_url not in visited:
+                        if self.is_internal_link(full_url) and full_url not in visited and len(visited) < self.max_pages:
                             to_visit.append(full_url)
                 
                 except Exception as e:
                     logger.error(f"Fehler beim Scannen von {url} mit Selenium: {e}")
+            
+            # PHASE 2: Cookies und Storage nach der Consent-Interaktion und dem Crawling erfassen
+            # Dies erfasst den letzten Stand der Cookies nach dem Besuch aller Seiten
+            logger.info("Erfasse endgültige Cookies nach der Consent-Interaktion und dem Crawling")
+            final_cookies, final_storage = self.get_cookies_and_storage(driver, self.start_url)
+            post_consent_cookies.extend(final_cookies)
+            post_consent_storage.update(final_storage)
         
         finally:
             # Browser schließen
             driver.quit()
         
-        # Entferne Duplikate aus der Liste der Cookies
-        unique_cookies = {}
-        for cookie in all_cookies:
+        # Entferne Duplikate aus den Listen der Cookies
+        unique_pre_cookies = {}
+        for cookie in pre_consent_cookies:
             key = (cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', ''))
-            if key not in unique_cookies:
-                unique_cookies[key] = cookie
+            if key not in unique_pre_cookies:
+                unique_pre_cookies[key] = cookie
         
-        return list(unique_cookies.values()), all_storage
+        unique_post_cookies = {}
+        for cookie in post_consent_cookies:
+            key = (cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', ''))
+            if key not in unique_post_cookies:
+                unique_post_cookies[key] = cookie
+        
+        # Bei der Standard-Methode geben wir nur die Post-Consent-Daten zurück
+        # für Kompatibilität mit der Standard-API
+        return list(unique_post_cookies.values()), post_consent_storage

@@ -58,7 +58,10 @@ def analyze_website(url: str, max_pages: Optional[int] = None,
         interact_with_consent=interact_with_consent,
         headless=headless
     )
-    return analyzer.analyze_website(url, max_pages, database_path)
+    
+    # Die Standard-Methode für die normale Analyse verwenden
+    classified_cookies, storage_data = analyzer.analyze_website(url, max_pages, database_path)
+    return classified_cookies, storage_data
 
 async def analyze_website_async(url: str, max_pages: Optional[int] = None, 
                               database_path: Optional[str] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
@@ -76,3 +79,44 @@ async def analyze_website_async(url: str, max_pages: Optional[int] = None,
             - Web Storage Daten.
     """
     return analyze_website(url, max_pages, database_path, use_async=True)
+
+def analyze_website_with_consent_stages(url: str, max_pages: Optional[int] = None, 
+                   database_path: Optional[str] = None,
+                   headless: bool = True) -> Tuple[
+                       Dict[str, List[Dict[str, Any]]], 
+                       Dict[str, Dict[str, Any]], 
+                       Dict[str, List[Dict[str, Any]]], 
+                       Dict[str, Dict[str, Any]]]:
+    """
+    Analysiert eine Website mit zwei Phasen: vor und nach der Consent-Interaktion.
+    
+    Args:
+        url (str): Die URL der Website, die analysiert werden soll.
+        max_pages (Optional[int]): Maximale Anzahl von Seiten, die gecrawlt werden sollen.
+        database_path (Optional[str]): Pfad zur Cookie-Datenbank (CSV-Datei).
+        headless (bool): Ob der Browser im Headless-Modus ausgeführt werden soll.
+    
+    Returns:
+        Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]], Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]: 
+            - Klassifizierte Cookies vor Consent-Interaktion.
+            - Web Storage Daten vor Consent-Interaktion.
+            - Klassifizierte Cookies nach Consent-Interaktion.
+            - Web Storage Daten nach Consent-Interaktion.
+    """
+    # Stellen Sie sicher, dass die Services initialisiert sind
+    initialize_services()
+    
+    # Standardwerte aus Config verwenden, wenn nicht angegeben
+    if max_pages is None:
+        max_pages = Config.DEFAULT_MAX_PAGES
+    if database_path is None:
+        database_path = Config.DEFAULT_DATABASE_PATH
+    
+    # Cookie-Analyzer erstellen und Website mit dem zweistufigen Prozess analysieren
+    analyzer = CookieAnalyzer(
+        crawler_type=CrawlerType.SELENIUM,
+        interact_with_consent=True,  # hier muss immer True sein für zweistufige Analyse
+        headless=headless
+    )
+    
+    return analyzer.analyze_website_with_consent_stages(url, max_pages, database_path)

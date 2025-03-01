@@ -15,7 +15,7 @@ from ..utils.logging import setup_logging
 from ..services.provider import ServiceProvider
 from ..services.initializer import initialize_services, get_cookie_classifier_service
 from ..services.crawler_factory import CrawlerType
-from .wrapper import analyze_website
+from .wrapper import analyze_website, analyze_website_with_consent_stages
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,8 @@ def cli_main() -> None:
                         help="Analysiert und zeigt Fingerprinting-Techniken")
     parser.add_argument("--dynamic", action="store_true", 
                         help="Zeigt dynamisch gesetzte Cookies getrennt an")
+    parser.add_argument("--pre-consent", action="store_true",
+                        help="Führt eine zweistufige Analyse durch und zeigt auch Cookies vor der Consent-Interaktion")
     
     args = parser.parse_args()
     
@@ -78,33 +80,63 @@ def cli_main() -> None:
     
     # Website analysieren
     try:
-        classified_cookies, storage_data = analyze_website(
-            url, 
-            max_pages=args.pages, 
-            database_path=args.database,
-            use_async=args.use_async,
-            use_selenium=args.selenium,
-            interact_with_consent=not args.no_consent_interaction,
-            headless=not args.show_browser
-        )
-        logger.info("Analyse erfolgreich abgeschlossen")
+        # Führe zweistufige Analyse durch, wenn --pre-consent aktiviert ist
+        if args.pre_consent:
+            if not args.selenium:
+                logger.info("Pre-Consent Analyse erfordert Selenium. Aktiviere Selenium automatisch.")
+                args.selenium = True
+            
+            # Zweistufige Analyse durchführen
+            pre_consent_cookies, pre_consent_storage, post_consent_cookies, post_consent_storage = analyze_website_with_consent_stages(
+                url,
+                max_pages=args.pages,
+                database_path=args.database,
+                headless=not args.show_browser
+            )
+            
+            logger.info("Zweistufige Analyse erfolgreich abgeschlossen")
+        else:
+            # Standard-Analyse durchführen
+            classified_cookies, storage_data = analyze_website(
+                url, 
+                max_pages=args.pages, 
+                database_path=args.database,
+                use_async=args.use_async,
+                use_selenium=args.selenium,
+                interact_with_consent=not args.no_consent_interaction,
+                headless=not args.show_browser
+            )
+            post_consent_cookies = classified_cookies  # Für einheitliches Handling
+            post_consent_storage = storage_data
+            pre_consent_cookies = None  # Nicht verfügbar in diesem Modus
+            pre_consent_storage = None
+            
+            logger.info("Analyse erfolgreich abgeschlossen")
         
         # Fingerprinting-Analyse durchführen, wenn angefordert
         fingerprinting_data = None
         if args.fingerprinting:
             cookie_classifier = get_cookie_classifier_service()
+            # Verwende die Post-Consent-Cookies für die Fingerprinting-Analyse
             all_cookies = []
-            for category, cookies in classified_cookies.items():
+            for category, cookies in post_consent_cookies.items():
                 all_cookies.extend(cookies)
-            fingerprinting_data = cookie_classifier.identify_fingerprinting(all_cookies, storage_data)
+            fingerprinting_data = cookie_classifier.identify_fingerprinting(all_cookies, post_consent_storage)
         
         # Ausgabe im gewünschten Format
         if args.json:
             # JSON-Ausgabe
             result = {
-                "cookies": classified_cookies,
-                "storage": storage_data
+                "cookies": post_consent_cookies,
+                "storage": post_consent_storage
             }
+            
+            # Füge Pre-Consent-Daten hinzu, falls verfügbar
+            if args.pre_consent and pre_consent_cookies and pre_consent_storage:
+                result["pre_consent"] = {
+                    "cookies": pre_consent_cookies,
+                    "storage": pre_consent_storage
+                }
             
             # Füge Fingerprinting-Daten hinzu, wenn vorhanden
             if fingerprinting_data:
@@ -113,8 +145,40 @@ def cli_main() -> None:
             print(json.dumps(result, indent=2))
         else:
             # Formatierte Textausgabe
-            print("\n--- Cookie-Analyse ---")
-            for category, cookie_list in classified_cookies.items():
+            
+            # Falls pre_consent aktiviert ist, zeige zuerst die Pre-Consent-Daten an
+            if args.pre_consent and pre_consent_cookies:
+                print("\n=== Cookies VOR der Consent-Interaktion ===")
+                for category, cookie_list in pre_consent_cookies.items():
+                    print(f"\n{category} ({len(cookie_list)}):")
+                    for cookie in cookie_list:
+                        print(f"- {cookie['name']}:")
+                        print(f"  Beschreibung: {cookie.get('description', 'Keine Beschreibung')}")
+                        print(f"  Kategorie: {cookie.get('category', 'Unbekannt')}")
+                        print(f"  Klassifizierungsmethode: {cookie.get('classification_method', 'Unbekannt')}")
+                        print(f"  Ablaufzeit: {cookie.get('expires', 'Unbekannt')}")
+                        print(f"  Domain: {cookie.get('domain', 'Unbekannt')}")
+                
+                # Web Storage vor Consent
+                if pre_consent_storage:
+                    print("\n--- Web Storage (VOR Consent) ---")
+                    for url, storage in pre_consent_storage.items():
+                        if url == "phase":
+                            continue
+                        print(f"\nStorage für {url}:")
+                        
+                        # Local Storage
+                        local_storage = storage.get("localStorage", {})
+                        if local_storage:
+                            print("\nLocal Storage:")
+                            for key, value in local_storage.items():
+                                print(f"- {key}: {value}")
+                        else:
+                            print("Keine Local Storage-Einträge gefunden")
+                
+            # Standardausgabe (nach Consent)
+            print("\n=== Cookies NACH der Consent-Interaktion ===" if args.pre_consent else "\n--- Cookie-Analyse ---")
+            for category, cookie_list in post_consent_cookies.items():
                 print(f"\n{category} ({len(cookie_list)}):")
                 for cookie in cookie_list:
                     print(f"- {cookie['name']}:")
@@ -123,10 +187,16 @@ def cli_main() -> None:
                     print(f"  Klassifizierungsmethode: {cookie.get('classification_method', 'Unbekannt')}")
                     print(f"  Ablaufzeit: {cookie.get('expires', 'Unbekannt')}")
                     print(f"  Domain: {cookie.get('domain', 'Unbekannt')}")
+                    if cookie.get('added_after_consent'):
+                        print("  ⚠️ Erst nach Consent-Interaktion gesetzt")
+                    elif cookie.get('changed_after_consent'):
+                        print("  ⚠️ Nach Consent-Interaktion geändert")
                     
             # Web Storage-Ausgabe
             print("\n--- Web Storage ---")
-            for url, storage in storage_data.items():
+            for url, storage in post_consent_storage.items():
+                if url == "phase":
+                    continue
                 print(f"\nStorage für {url}:")
                 
                 # Local Storage
