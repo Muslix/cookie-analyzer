@@ -1,43 +1,37 @@
-# __init__.py
+"""
+Cookie-Analyzer: Ein Tool zur Analyse und Klassifizierung von Cookies auf Websites.
+"""
+
 from .core import CookieAnalyzer, crawl_website, crawl_website_async
-from .crawler import CookieCrawler, AsyncCookieCrawler
-from .cookie_handler import CookieHandler
-from .interface import analyze_website, analyze_website_async
-from .database import DatabaseHandler
-from .utils import setup_logging, save_results_as_json, load_config, validate_url, Config
-from .services import initialize_services, ServiceProvider, get_database_service, get_cookie_classifier_service, get_crawler_service
+from .handlers.cookie_handler import CookieHandler, classify_cookies, remove_duplicate_cookies
+from .database.handler import DatabaseHandler, load_database, find_cookie_info
+from .database.updater import update_cookie_database, get_alternative_cookie_databases
+from .utils.config import Config, load_config
+from .utils.logging import setup_logging
+from .utils.url import validate_url
+from .utils.export import save_results_as_json
+from .services.initializer import initialize_services
 
-# Initialize services at package import
-initialize_services()
-
-# Exportiere die wichtigsten Funktionen und Klassen
+__version__ = "0.1.0"
 __all__ = [
-    # Main API
-    'analyze_website',
-    'analyze_website_async',
     'CookieAnalyzer',
-    
-    # Core components
     'crawl_website',
     'crawl_website_async',
-    
-    # Services
-    'initialize_services',
-    'ServiceProvider',
-    'get_database_service',
-    'get_cookie_classifier_service',
-    'get_crawler_service',
-    
-    # Service implementations
-    'CookieCrawler',
-    'AsyncCookieCrawler',
     'CookieHandler',
+    'classify_cookies',
+    'remove_duplicate_cookies',
     'DatabaseHandler',
-    
-    # Utility functions
-    'setup_logging',
-    'save_results_as_json',
-    'load_config',
-    'validate_url',
+    'load_database',
+    'find_cookie_info',
+    'update_cookie_database',
+    'get_alternative_cookie_databases',
     'Config',
+    'load_config',
+    'setup_logging',
+    'validate_url',
+    'save_results_as_json',
+    'initialize_services'
 ]
+
+# Initialisiere die Standard-Services
+initialize_services()

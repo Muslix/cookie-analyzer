@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-from cookie_analyzer.interface import analyze_website
-from cookie_analyzer.utils import setup_logging, save_results_as_json, validate_url, Config
-from cookie_analyzer.database import update_cookie_database, get_alternative_cookie_databases
+from cookie_analyzer.interface.wrapper import analyze_website
+from cookie_analyzer.utils.logging import setup_logging
+from cookie_analyzer.utils.export import save_results_as_json
+from cookie_analyzer.utils.url import validate_url
+from cookie_analyzer.utils.config import Config
+from cookie_analyzer.database.updater import update_cookie_database, get_alternative_cookie_databases
+from cookie_analyzer.services.crawler_factory import CrawlerType
+from cookie_analyzer.services.initializer import get_cookie_classifier_service
+
 import argparse
 import logging
 import sys
@@ -98,7 +104,9 @@ def main():
         args.dynamic = True
     
     respect_robots = not args.no_robots
-    crawler_type = "selenium" if args.selenium else ("playwright_async" if args.use_async else "playwright")
+    crawler_type = CrawlerType.SELENIUM if args.selenium else (
+        CrawlerType.PLAYWRIGHT_ASYNC if args.use_async else CrawlerType.PLAYWRIGHT
+    )
     
     logger.info(f"Starte Analyse von {url} mit max. {args.pages} Seiten "
                f"(robots.txt {'wird beachtet' if respect_robots else 'wird ignoriert'}, "
@@ -119,7 +127,6 @@ def main():
         # Fingerprinting-Analyse durchführen, wenn gewünscht
         fingerprinting_data = None
         if args.fingerprinting:
-            from cookie_analyzer.services import get_cookie_classifier_service
             cookie_classifier = get_cookie_classifier_service()
             all_cookies = []
             for category, cookies in classified_cookies.items():
