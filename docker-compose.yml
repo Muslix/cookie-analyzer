@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  cookie-analyzer:
+    build: .
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONPATH=/app
+      - HEADLESS=true
+    command: ["python", "start.py"]
+    network_mode: host  # For easier local testing
+
+  test:
+    build: .
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONPATH=/app
+      - HEADLESS=true
+    command: ["pytest", "tests/", "-v"]
+    network_mode: host

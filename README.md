@@ -1,5 +1,10 @@
 # Cookie Analyzer
 Ein Python-Tool zur Analyse von Websites auf Cookies und Local Storage, mit Integration der [Open Cookie Database](https://github.com/jkwakman/Open-Cookie-Database).
+
+![CI Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/ci.yml/badge.svg)
+![Docker Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/docker.yml/badge.svg)
+![Code Quality](https://github.com/Muslix/cookie-analyzer/actions/workflows/lint.yml/badge.svg)
+
 ---
 ## **Funktionen**
 - **Cookie-Erkennung**: Identifiziert Cookies auf einer Website.
@@ -370,6 +375,79 @@ cookie_analyzer/
 ├── services.py         # Dependency Injection Services
 └── utils.py            # Hilfsfunktionen und Konfiguration
 ```
+---
+## **CI/CD Pipeline**
+
+Das Projekt ist mit einer umfassenden CI/CD-Pipeline eingerichtet, die automatische Tests, Codequalitätsprüfung, Docker-Image-Erstellung und Veröffentlichung umfasst.
+
+### **GitHub Actions Workflows**
+
+1. **CI (Continuous Integration)**
+   - Automatische Tests auf mehreren Python-Versionen (3.9, 3.10, 3.11)
+   - Installiert Chrome und ChromeDriver für Selenium-Tests
+   - Führt Tests mit Berichterstattung zur Codeabdeckung aus
+   - Lädt Codeabdeckungsberichte zu Codecov hoch
+
+2. **Code Quality**
+   - Prüft die Codeformatierung mit Black
+   - Sortierung der Importe mit isort
+   - Lint-Prüfung mit flake8
+   - Statische Code-Analyse mit pylint
+
+3. **Docker Build und Test**
+   - Erstellt ein Docker-Image für die Anwendung
+   - Testet das erstellte Image
+   - Veröffentlicht das Image in der GitHub Container Registry (bei Pushes zu main/master oder Tags)
+
+4. **CD (Continuous Deployment)**
+   - Automatische Veröffentlichung des Pakets auf PyPI bei Erstellung eines neuen Tags
+   - Erstellt GitHub Releases mit den Distributionspaketen
+
+### **Lokale Entwicklung mit Make-Befehlen**
+
+Das Projekt enthält eine `Makefile` mit nützlichen Befehlen zur Entwicklung:
+
+```bash
+# Installation der Abhängigkeiten
+make install
+
+# Ausführen der Tests
+make test
+
+# Code-Coverage prüfen
+make coverage
+
+# Lint-Prüfung durchführen
+make lint
+
+# Code formatieren
+make format
+
+# Release erstellen und auf PyPI hochladen
+make release
+
+# Bereinigen von temporären Dateien
+make clean
+```
+
+### **Docker-Unterstützung**
+
+Sie können die Anwendung mit Docker ausführen:
+
+```bash
+# Docker-Image bauen
+docker build -t cookie-analyzer .
+
+# Anwendung ausführen
+docker run cookie-analyzer https://www.example.com
+
+# Mit Docker Compose ausführen
+docker-compose up cookie-analyzer
+
+# Tests in Docker ausführen
+docker-compose up test
+```
+
 ---
 ## **Hinweise**
 
