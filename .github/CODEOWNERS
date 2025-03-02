@@ -1,0 +1,20 @@
+# These owners will be the default owners for everything in the repo
+* @Muslix
+
+# Cookie analyzer core functionality
+cookie_analyzer/core/ @Muslix
+cookie_analyzer/crawler/ @Muslix
+cookie_analyzer/handlers/ @Muslix
+
+# Tests
+tests/ @Muslix
+
+# Documentation
+*.md @Muslix
+docs/ @Muslix
+
+# CI/CD and infrastructure
+.github/ @Muslix
+Dockerfile @Muslix
+docker-compose.yml @Muslix
+Makefile @Muslix

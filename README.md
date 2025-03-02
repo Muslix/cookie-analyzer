@@ -1,9 +1,12 @@
 # Cookie Analyzer
 Ein Python-Tool zur Analyse von Websites auf Cookies und Local Storage, mit Integration der [Open Cookie Database](https://github.com/jkwakman/Open-Cookie-Database).
 
-![CI Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/ci.yml/badge.svg)
-![Docker Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/docker.yml/badge.svg)
-![Code Quality](https://github.com/Muslix/cookie-analyzer/actions/workflows/lint.yml/badge.svg)
+[![CI Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/Muslix/cookie-analyzer/actions/workflows/ci.yml)
+[![Docker Status](https://github.com/Muslix/cookie-analyzer/actions/workflows/docker.yml/badge.svg)](https://github.com/Muslix/cookie-analyzer/actions/workflows/docker.yml)
+[![Code Quality](https://github.com/Muslix/cookie-analyzer/actions/workflows/lint.yml/badge.svg)](https://github.com/Muslix/cookie-analyzer/actions/workflows/lint.yml)
+[![Security Scan](https://github.com/Muslix/cookie-analyzer/actions/workflows/security.yml/badge.svg)](https://github.com/Muslix/cookie-analyzer/actions/workflows/security.yml)
+[![License](https://img.shields.io/github/license/Muslix/cookie-analyzer)](https://github.com/Muslix/cookie-analyzer/blob/main/LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
 
 ---
 ## **Funktionen**
