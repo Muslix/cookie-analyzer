@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Chrome and dependencies
+# Install Chrome dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -30,18 +30,27 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
-    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
-    && apt-get update && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Install a specific version of ChromeDriver that matches Chrome
-# This is more reliable than trying to determine versions dynamically
+# Install Chrome stable
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ChromeDriver using the standalone selenium approach
 ENV CHROMEDRIVER_VERSION=114.0.5735.90
-RUN wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" \
-    && unzip chromedriver_linux64.zip -d /usr/local/bin/ \
-    && chmod +x /usr/local/bin/chromedriver \
-    && rm chromedriver_linux64.zip
+RUN mkdir -p /opt/chromedriver \
+    && wget -q --no-verbose -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" \
+    && unzip /tmp/chromedriver.zip -d /opt/chromedriver \
+    && rm /tmp/chromedriver.zip \
+    && chmod +x /opt/chromedriver/chromedriver \
+    && ln -fs /opt/chromedriver/chromedriver /usr/local/bin/chromedriver
+
+# Verify Chrome and ChromeDriver installation
+RUN echo "Chrome version: $(google-chrome --version)" \
+    && echo "ChromeDriver version: $(chromedriver --version)"
 
 WORKDIR /app
 

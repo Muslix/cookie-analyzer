@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -18,6 +18,11 @@ jobs:
         uses: docker/setup-buildx-action@v2
         with:
           buildkitd-flags: --debug
+      
+      - name: Lowercase owner
+        id: lowercase
+        run: |
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       - name: Build Docker image
         uses: docker/build-push-action@v4
@@ -49,6 +54,6 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/cookie-analyzer:latest
-            ${{ startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/cookie-analyzer:{1}', github.repository_owner, github.ref_name) || '' }}
+            ghcr.io/${{ env.OWNER_LC }}/cookie-analyzer:latest
+            ${{ startsWith(github.ref, 'refs/tags/') && format('ghcr.io/{0}/cookie-analyzer:{1}', env.OWNER_LC, github.ref_name) || '' }}
           cache-from: type=gha

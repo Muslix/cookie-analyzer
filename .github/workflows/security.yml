@@ -10,7 +10,7 @@ on:
 
 jobs:
   security-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -43,7 +43,7 @@ jobs:
             safety-results.json
             
   dependency-review:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
