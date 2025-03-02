@@ -1,198 +1,173 @@
 """
-CookieHandler-Klasse zur Verarbeitung und Klassifizierung von Cookies.
+Tests für den Cookie-Classifier.
 """
 
-import logging
-from typing import Dict, List, Any, Set
+import pytest
+from unittest.mock import patch
+from cookie_analyzer.handlers.cookie_classifier import CookieClassifier
 
-from .cookie_classifier import CookieClassifier
 
-logger = logging.getLogger(__name__)
-
-class CookieHandler:
-    """Handles cookie classification and processing operations."""
+def test_classify_cookies(mock_database, mock_cookies):
+    """Testet die Klassifizierung von Cookies nach Kategorien."""
+    classifier = CookieClassifier()
     
-    def __init__(self):
-        """Initialisiert den CookieHandler."""
-        self.classifier = CookieClassifier()
+    classified_cookies = classifier.classify_cookies(mock_cookies, mock_database)
     
-    def classify_cookies(self, cookies: List[Dict[str, Any]], 
-                        cookie_database: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Klassifiziert Cookies und ergänzt Informationen aus der Cookie-Datenbank.
-        
-        Args:
-            cookies: Liste der zu klassifizierenden Cookies
-            cookie_database: Die Cookie-Datenbank mit Klassifikationsinformationen
-            
-        Returns:
-            Dictionary mit klassifizierten Cookies nach Kategorien
-        """
-        from ..database.handler import find_cookie_info
-        
-        classified = {
-            "Strictly Necessary": [],
-            "Performance": [],
-            "Targeting": [],
-            "Other": []
+    # Überprüfe, ob die Ergebnisse ein Dictionary sind
+    assert isinstance(classified_cookies, dict)
+    
+    # Überprüfe, ob die erwarteten Kategorien vorhanden sind
+    assert "Analytics" in classified_cookies
+    assert "Marketing" in classified_cookies
+    assert "Necessary" in classified_cookies
+    assert "Unbekannt" in classified_cookies
+    
+    # Überprüfe, ob die Cookies korrekt klassifiziert wurden
+    analytics_cookies = classified_cookies["Analytics"]
+    marketing_cookies = classified_cookies["Marketing"]
+    necessary_cookies = classified_cookies["Necessary"]
+    unknown_cookies = classified_cookies["Unbekannt"]
+    
+    # Erwartete Cookies in jeder Kategorie
+    assert any(cookie["name"] == "test_cookie" for cookie in analytics_cookies)
+    assert any(cookie["name"] == "_ga" for cookie in marketing_cookies)
+    assert any(cookie["name"] == "fr" for cookie in marketing_cookies)
+    assert any(cookie["name"] == "session_id" for cookie in necessary_cookies)
+
+
+def test_remove_duplicates(mock_cookies):
+    """Testet das Entfernen von Duplikaten aus der Cookie-Liste."""
+    classifier = CookieClassifier()
+    
+    # Erstelle Duplikate
+    duplicates = mock_cookies + [
+        # Doppelter Eintrag für test_cookie
+        {
+            "name": "test_cookie",
+            "value": "different_value",
+            "domain": "example.com",
+            "path": "/",
+            "expires": 1672531200,
+            "secure": True,
+            "httpOnly": True
         }
-        
-        for cookie in cookies:
-            # 1. Versuche Klassifizierung über Datenbank
-            cookie_info = find_cookie_info(cookie["name"], cookie_database)
-            db_category = cookie_info.get("Category", "Unknown")
-            
-            cookie.update({
-                "description": cookie_info.get("Description", "Keine Beschreibung verfügbar."),
-                "category": db_category,
-            })
-            
-            # 2. Falls keine Datenbank-Kategorie oder unbekannt, verwende regelbasierte Klassifizierung
-            if db_category == "Unknown" or db_category == "Other":
-                rule_category = CookieClassifier.classify_by_rule(cookie)
-                cookie["category"] = rule_category
-                if rule_category != "Other":
-                    cookie["classification_method"] = "rule-based"
-                    logger.info(f"Cookie '{cookie['name']}' durch Regeln als '{rule_category}' klassifiziert")
-            else:
-                cookie["classification_method"] = "database"
-            
-            # 3. Füge den Cookie der entsprechenden Kategorie hinzu
-            category = cookie["category"]
-            
-            if category.lower() == "functional" or category.lower() == "necessary" or category == "Strictly Necessary":
-                classified["Strictly Necessary"].append(cookie)
-            elif category.lower() == "analytics" or category == "Performance":
-                classified["Performance"].append(cookie)
-            elif category.lower() == "marketing" or category == "Targeting":
-                classified["Targeting"].append(cookie)
-            else:
-                classified["Other"].append(cookie)
-        
-        return classified
+    ]
     
-    def remove_duplicates(self, cookies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Entfernt doppelte Cookies aus einer Liste. Cookies werden als doppelt betrachtet,
-        wenn sie den gleichen Namen und die gleiche Domain haben.
-        
-        Args:
-            cookies: Liste von Cookie-Dictionaries
-            
-        Returns:
-            Liste ohne doppelte Cookies
-        """
-        unique_cookies = {}
-        
-        for cookie in cookies:
-            key = (cookie.get('name', ''), cookie.get('domain', ''))
-            if key not in unique_cookies:
-                unique_cookies[key] = cookie
-        
-        return list(unique_cookies.values())
+    # Entferne Duplikate
+    unique_cookies = classifier.remove_duplicates(duplicates)
     
-    def get_consent_categories(self, cookies: List[Dict[str, Any]]) -> Dict[str, int]:
-        """
-        Analysiert Cookies und ordnet sie Consent-Kategorien zu.
-        Gibt die Anzahl der Cookies pro Kategorie zurück.
-        
-        Args:
-            cookies: Liste von Cookie-Dictionaries
-            
-        Returns:
-            Dictionary mit Anzahl der Cookies pro Kategorie
-        """
-        categories = {
-            "Strictly Necessary": 0,
-            "Performance": 0,
-            "Targeting": 0,
-            "Other": 0
-        }
-        
-        classified = self.classify_cookies(cookies, [])  # Leere Datenbank -> nur regelbasierte Klassifizierung
-        
-        for category, cookie_list in classified.items():
-            categories[category] = len(cookie_list)
-        
-        return categories
+    # Stelle sicher, dass die Anzahl der einzigartigen Cookies korrekt ist
+    assert len(unique_cookies) == len(mock_cookies)
     
-    def identify_fingerprinting(self, cookies: List[Dict[str, Any]], 
-                               local_storage: Dict[str, Dict[str, str]]) -> Dict[str, bool]:
-        """
-        Identifiziert potenzielle Fingerprinting-Techniken.
-        
-        Args:
-            cookies: Liste von Cookie-Dictionaries
-            local_storage: Dictionary mit Local Storage-Daten
-            
-        Returns:
-            Dictionary mit erkannten Fingerprinting-Techniken
-        """
-        import re
-        
-        fingerprinting = {
-            "canvas_fingerprinting": False,
-            "font_fingerprinting": False,
-            "webrtc_fingerprinting": False,
-            "battery_api": False,
-            "device_enumeration": False,
-            "persistent_identifiers": False
-        }
-        
-        # Prüfe Cookies nach typischen Fingerprinting-Bezeichnern
-        fingerprinting_patterns = [
-            r"canvas", r"fp2?", r"fingerprint", r"visitorid", r"deviceid",
-            r"uniqueid", r"visitor", r"machine", r"(?:u|v|m|d|s)id"
-        ]
-        
-        # Prüfe LocalStorage nach Fingerprinting-Indikatoren
-        storage_fingerprinting_patterns = [
-            "canvas", "fingerprint", "deviceid", "browserhash", "clientid",
-            "uniqueid", "deviceprint", "fp2"
-        ]
-        
-        # Suche nach Fingerprinting-Mustern in Cookies
-        for cookie in cookies:
-            name = cookie.get("name", "").lower()
-            value = str(cookie.get("value", "")).lower()
-            
-            if any(re.search(pattern, name, re.IGNORECASE) for pattern in fingerprinting_patterns):
-                fingerprinting["persistent_identifiers"] = True
-            
-            # Lange, kryptische Werte können auf Fingerprinting hindeuten
-            if len(value) > 50 and re.search(r'^[a-zA-Z0-9+/]{50,}={0,2}$', value):
-                fingerprinting["persistent_identifiers"] = True
-        
-        # Suche nach Fingerprinting-Indikatoren im LocalStorage
-        for url, storage in local_storage.items():
-            local_store = storage.get("localStorage", {})
-            
-            for key, value in local_store.items():
-                key_lower = key.lower()
-                if any(pattern in key_lower for pattern in storage_fingerprinting_patterns):
-                    fingerprinting["persistent_identifiers"] = True
-                
-                # Canvas-Fingerprinting speichert oft Base64-kodierte Daten
-                if ("canvas" in key_lower and len(str(value)) > 500) or "canvasfingerprint" in key_lower:
-                    fingerprinting["canvas_fingerprinting"] = True
-                
-                # Font-Fingerprinting
-                if "font" in key_lower and ("fingerprint" in key_lower or "detection" in key_lower):
-                    fingerprinting["font_fingerprinting"] = True
-                
-                # WebRTC-Fingerprinting
-                if "webrtc" in key_lower or "rtcfingerprint" in key_lower:
-                    fingerprinting["webrtc_fingerprinting"] = True
-        
-        return fingerprinting
+    # Stelle sicher, dass jeder Cookie-Name nur einmal vorkommt
+    cookie_names = [cookie["name"] for cookie in unique_cookies]
+    assert len(cookie_names) == len(set(cookie_names))
 
-# Legacy functions for backward compatibility
-def classify_cookies(cookies: List[Dict[str, Any]], cookie_database: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    """Legacy function for backward compatibility."""
-    handler = CookieHandler()
-    return handler.classify_cookies(cookies, cookie_database)
 
-def remove_duplicate_cookies(cookies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Legacy function for backward compatibility."""
-    handler = CookieHandler()
-    return handler.remove_duplicates(cookies)
+def test_find_cookie_info():
+    """Testet die Suche nach Cookie-Informationen in der Datenbank."""
+    classifier = CookieClassifier()
+    
+    # Erstelle eine Test-Datenbank
+    test_db = [
+        {
+            "name": "test_cookie",
+            "category": "Analytics",
+            "vendor": "Test Vendor",
+            "description": "Test Description"
+        },
+        {
+            "name": "wildcard_*_cookie",
+            "category": "Marketing",
+            "vendor": "Wildcard Vendor",
+            "description": "Wildcard Description",
+            "wildcard": "1"
+        }
+    ]
+    
+    # Teste mit exaktem Match
+    exact_match = classifier.find_cookie_info("test_cookie", test_db)
+    assert exact_match is not None
+    assert exact_match["category"] == "Analytics"
+    
+    # Teste mit Wildcard-Match
+    wildcard_match = classifier.find_cookie_info("wildcard_123_cookie", test_db)
+    assert wildcard_match is not None
+    assert wildcard_match["category"] == "Marketing"
+    
+    # Teste mit nicht vorhandenem Cookie
+    no_match = classifier.find_cookie_info("nonexistent_cookie", test_db)
+    assert no_match is None
+
+
+def test_classify_with_heuristics():
+    """Testet die heuristische Klassifizierung von Cookies."""
+    classifier = CookieClassifier()
+    
+    # Cookies, die anhand von Heuristiken klassifiziert werden sollten
+    heuristic_cookies = [
+        # Session-Cookie
+        {
+            "name": "session_token",
+            "value": "abc123",
+            "domain": "example.com",
+            "expires": -1
+        },
+        # Analytics-Cookie (Google Analytics)
+        {
+            "name": "_gat",
+            "value": "1",
+            "domain": "google-analytics.com"
+        },
+        # Marketing-Cookie (Facebook)
+        {
+            "name": "fbp",
+            "value": "fb.1.1234567890",
+            "domain": "facebook.com"
+        },
+        # Preference-Cookie
+        {
+            "name": "theme_preference",
+            "value": "dark"
+        }
+    ]
+    
+    # Klassifiziere mit leerer Datenbank, um nur Heuristiken zu verwenden
+    classified = classifier.classify_cookies(heuristic_cookies, [])
+    
+    # Überprüfe, ob die Cookies basierend auf Heuristiken korrekt klassifiziert wurden
+    assert any(cookie["name"] == "session_token" for cookie in classified.get("Necessary", []))
+    assert any(cookie["name"] == "_gat" for cookie in classified.get("Analytics", []))
+    assert any(cookie["name"] == "fbp" for cookie in classified.get("Marketing", []))
+    
+    # Präferenz-Cookies sollten als Preferences klassifiziert werden
+    assert any(cookie["name"] == "theme_preference" for cookie in classified.get("Preferences", []))
+
+
+def test_identify_fingerprinting():
+    """Testet die Erkennung von Fingerprinting-Techniken."""
+    classifier = CookieClassifier()
+    
+    cookies = [
+        {
+            "name": "canvas_fp",
+            "value": "hash_value",
+            "domain": "example.com"
+        }
+    ]
+    
+    storage = {
+        "https://example.com": {
+            "localStorage": {
+                "device_fingerprint": "device_id_12345",
+                "fpjs_id": "fingerprint_value"
+            },
+            "sessionStorage": {}
+        }
+    }
+    
+    fingerprinting = classifier.identify_fingerprinting(cookies, storage)
+    
+    # Überprüfe, ob Fingerprinting erkannt wurde
+    assert isinstance(fingerprinting, dict)
+    assert any(fingerprinting.values())

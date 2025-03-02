@@ -20,19 +20,22 @@ class CookieAnalyzer:
     """
     
     def __init__(self, crawler_type: str = CrawlerType.PLAYWRIGHT, 
-                 interact_with_consent: bool = True, headless: bool = True):
+                 interact_with_consent: bool = True, headless: bool = True,
+                 user_data_dir: Optional[str] = None):
         """
-        Initialisiert den CookieAnalyzer.
+        Initialisiert den Cookie-Analyzer.
         
         Args:
-            crawler_type: Art des zu verwendenden Crawlers (PLAYWRIGHT, PLAYWRIGHT_ASYNC oder SELENIUM)
+            crawler_type: Art des zu verwendenden Crawlers (PLAYWRIGHT, PLAYWRIGHT_ASYNC, SELENIUM)
             interact_with_consent: Ob mit Cookie-Consent-Bannern interagiert werden soll
             headless: Ob der Browser im Headless-Modus laufen soll
+            user_data_dir: Pfad zum Chrome-Benutzerprofil (nur bei Selenium)
         """
         self.crawler_type = crawler_type
         self.interact_with_consent = interact_with_consent
         self.headless = headless
-    
+        self.user_data_dir = user_data_dir
+        
     def analyze_website(self, url: str, max_pages: int = 1, 
                         database_path: Optional[str] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
         """
@@ -72,7 +75,8 @@ class CookieAnalyzer:
             cookie_database,
             self.crawler_type,
             self.interact_with_consent,
-            self.headless
+            self.headless,
+            self.user_data_dir
         )
         
     def analyze_website_with_consent_stages(self, url: str, max_pages: int = 1, 
@@ -117,9 +121,10 @@ class CookieAnalyzer:
         crawler = get_crawler_service(
             start_url=url,
             max_pages=max_pages,
-            crawler_type=CrawlerType.SELENIUM,
-            interact_with_consent=True,  # Für zweistufige Analyse muss dies True sein
-            headless=self.headless
+            crawler_type=CrawlerType.SELENIUM,  # Hier immer Selenium verwenden
+            interact_with_consent=True,  # Hier muss True sein für zweistufige Analyse
+            headless=self.headless,
+            user_data_dir=self.user_data_dir
         )
         
         # Website crawlen mit zweistufigem Prozess
@@ -158,41 +163,34 @@ class CookieAnalyzer:
     
     def _identify_new_cookies(self, pre_cookies: List[Dict[str, Any]], post_cookies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Identifiziert Cookies, die erst nach der Consent-Interaktion erscheinen.
+        Identifiziert Cookies, die erst nach der Consent-Interaktion hinzugekommen sind.
         
         Args:
-            pre_cookies: Cookies vor der Consent-Interaktion
-            post_cookies: Cookies nach der Consent-Interaktion
+            pre_cookies: Cookies vor Consent-Interaktion
+            post_cookies: Cookies nach Consent-Interaktion
             
         Returns:
-            Liste von Cookies, die neu hinzugekommen sind
+            Liste der neu hinzugekommenen Cookies
         """
-        # Erstelle einen Schlüssel für jeden Cookie (Name + Domain + Pfad)
-        pre_cookie_keys = {
-            (cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', '')): cookie
-            for cookie in pre_cookies
-        }
+        # Erstelle einen Set von Tupeln mit eindeutigen Cookie-Identifikatoren vor der Interaktion
+        pre_cookie_keys = {(cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', '/')) 
+                          for cookie in pre_cookies}
         
-        # Finde Cookies, die in post_cookies sind, aber nicht in pre_cookies
+        # Finde Cookies, die nach der Interaktion neu sind
         new_cookies = []
         for cookie in post_cookies:
-            key = (cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', ''))
-            if key not in pre_cookie_keys:
-                # Füge eine Markierung hinzu
-                cookie['added_after_consent'] = True
-                new_cookies.append(cookie)
-            elif cookie.get('value') != pre_cookie_keys[key].get('value'):
-                # Wenn sich der Wert geändert hat, betrachten wir es auch als neues/geändertes Cookie
-                cookie['changed_after_consent'] = True
+            cookie_key = (cookie.get('name', ''), cookie.get('domain', ''), cookie.get('path', '/'))
+            if cookie_key not in pre_cookie_keys:
+                cookie['is_new_after_consent'] = True
                 new_cookies.append(cookie)
                 
         return new_cookies
 
-
 def crawl_website(url: str, max_pages: int, cookie_database: List[Dict[str, Any]], 
                  crawler_type: str = CrawlerType.PLAYWRIGHT,
                  interact_with_consent: bool = True, 
-                 headless: bool = True) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
+                 headless: bool = True,
+                 user_data_dir: Optional[str] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
     """
     Crawlt eine Website und klassifiziert die gefundenen Cookies.
     
@@ -203,6 +201,7 @@ def crawl_website(url: str, max_pages: int, cookie_database: List[Dict[str, Any]
         crawler_type: Art des zu verwendenden Crawlers
         interact_with_consent: Ob mit Cookie-Consent-Bannern interagiert werden soll
         headless: Ob der Browser im Headless-Modus laufen soll
+        user_data_dir: Pfad zum Chrome-Benutzerprofil (nur bei Selenium)
         
     Returns:
         Tuple mit klassifizierten Cookies und Web Storage Daten
@@ -216,7 +215,8 @@ def crawl_website(url: str, max_pages: int, cookie_database: List[Dict[str, Any]
         max_pages=max_pages,
         crawler_type=crawler_type,
         interact_with_consent=interact_with_consent,
-        headless=headless
+        headless=headless,
+        user_data_dir=user_data_dir
     )
     
     # Website crawlen

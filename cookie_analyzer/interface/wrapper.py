@@ -18,7 +18,8 @@ def analyze_website(url: str, max_pages: Optional[int] = None,
                    use_async: bool = False,
                    use_selenium: bool = False,
                    interact_with_consent: bool = True,
-                   headless: bool = True) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
+                   headless: bool = True,
+                   user_data_dir: Optional[str] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
     """
     Analysiert eine Website und liefert klassifizierte Cookies zurück.
     
@@ -30,6 +31,7 @@ def analyze_website(url: str, max_pages: Optional[int] = None,
         use_selenium (bool): Ob Selenium für erweiterte Cookie-Erfassung genutzt werden soll.
         interact_with_consent (bool): Ob mit Cookie-Consent-Bannern interagiert werden soll.
         headless (bool): Ob der Browser im Headless-Modus ausgeführt werden soll.
+        user_data_dir (Optional[str]): Pfad zum Chrome-Benutzerprofil (nur bei Selenium).
     
     Returns:
         Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]: 
@@ -56,7 +58,8 @@ def analyze_website(url: str, max_pages: Optional[int] = None,
     analyzer = CookieAnalyzer(
         crawler_type=crawler_type,
         interact_with_consent=interact_with_consent,
-        headless=headless
+        headless=headless,
+        user_data_dir=user_data_dir
     )
     
     # Die Standard-Methode für die normale Analyse verwenden
@@ -82,7 +85,8 @@ async def analyze_website_async(url: str, max_pages: Optional[int] = None,
 
 def analyze_website_with_consent_stages(url: str, max_pages: Optional[int] = None, 
                    database_path: Optional[str] = None,
-                   headless: bool = True) -> Tuple[
+                   headless: bool = True,
+                   user_data_dir: Optional[str] = None) -> Tuple[
                        Dict[str, List[Dict[str, Any]]], 
                        Dict[str, Dict[str, Any]], 
                        Dict[str, List[Dict[str, Any]]], 
@@ -95,6 +99,7 @@ def analyze_website_with_consent_stages(url: str, max_pages: Optional[int] = Non
         max_pages (Optional[int]): Maximale Anzahl von Seiten, die gecrawlt werden sollen.
         database_path (Optional[str]): Pfad zur Cookie-Datenbank (CSV-Datei).
         headless (bool): Ob der Browser im Headless-Modus ausgeführt werden soll.
+        user_data_dir (Optional[str]): Pfad zum Chrome-Benutzerprofil.
     
     Returns:
         Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]], Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]: 
@@ -116,7 +121,8 @@ def analyze_website_with_consent_stages(url: str, max_pages: Optional[int] = Non
     analyzer = CookieAnalyzer(
         crawler_type=CrawlerType.SELENIUM,
         interact_with_consent=True,  # hier muss immer True sein für zweistufige Analyse
-        headless=headless
+        headless=headless,
+        user_data_dir=user_data_dir
     )
     
     return analyzer.analyze_website_with_consent_stages(url, max_pages, database_path)

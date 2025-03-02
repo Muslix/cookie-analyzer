@@ -119,21 +119,27 @@ class CookieClassifier:
             if keyword in name.lower() or (value and keyword in value.lower()):
                 return category
         
-        # 4. Heuristiken basierend auf anderen Cookie-Eigenschaften
+        # 4. Zusätzliche spezifische Prüfungen
         
-        # 4.1 Session-Cookies ohne Ablaufdatum sind wahrscheinlich notwendig
-        if cookie.get('session', False):
+        # Themen-Präferenzen sind Funktional/Preferences
+        if 'theme' in name.lower() or 'color' in name.lower() or 'style' in name.lower():
+            return "Functional"
+            
+        # 5. Heuristiken basierend auf anderen Cookie-Eigenschaften
+        
+        # 5.1 Session-Cookies ohne Ablaufdatum sind wahrscheinlich notwendig
+        if cookie.get('expires', -1) == -1 or cookie.get('session', False):
             return "Strictly Necessary"
         
-        # 4.2 Cookies mit zufällig aussehenden kurzen Namen sind oft Analytics
+        # 5.2 Cookies mit zufällig aussehenden kurzen Namen sind oft Analytics
         if len(name) <= 4 and re.search(r'[0-9a-z]{2,4}', name):
             return "Performance"
         
-        # 4.3 Cookies mit sehr langer Lebensdauer sind oft Tracking/Targeting
+        # 5.3 Cookies mit sehr langer Lebensdauer sind oft Tracking/Targeting
         if cookie.get('expires') and isinstance(cookie['expires'], (int, float)) and cookie['expires'] > 86400 * 30:  # > 30 Tage
             return "Targeting"
         
-        # 5. Fallback: Unbekannt
+        # 6. Fallback: Unbekannt
         return "Other"
     
     @staticmethod
@@ -182,6 +188,40 @@ class CookieClassifier:
             
         return list(unique_cookies.values())
     
+    def find_cookie_info(self, cookie_name: str, cookie_database: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Findet Informationen zu einem bestimmten Cookie in der Datenbank.
+        
+        Args:
+            cookie_name: Der Name des Cookies
+            cookie_database: Die Cookie-Datenbank
+        
+        Returns:
+            Dictionary mit den Informationen zum Cookie oder None wenn nicht gefunden
+        """
+        # Direkte Übereinstimmung
+        for cookie in cookie_database:
+            # Handle beide Formate - alte DB hat 'Cookie Name', neue DB hat 'name'
+            if 'name' in cookie and cookie["name"].lower() == cookie_name.lower():
+                return cookie
+            
+            if 'Cookie Name' in cookie and cookie["Cookie Name"].lower() == cookie_name.lower():
+                return cookie
+            
+        # Wildcard-Übereinstimmung
+        for cookie in cookie_database:
+            cookie_db_name = cookie.get('name', cookie.get('Cookie Name', ''))
+            wildcard = cookie.get('wildcard', '0')
+            
+            if wildcard == '1' or wildcard is True:
+                if '*' in cookie_db_name:
+                    pattern = cookie_db_name.replace('*', '.*')
+                    if re.search(f'^{pattern}$', cookie_name, re.IGNORECASE):
+                        return cookie
+        
+        # Nichts gefunden
+        return None
+
     def classify_cookies(self, cookies: List[Dict[str, Any]], database: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
         Klassifiziert eine Liste von Cookies mithilfe einer Datenbank und Regeln.
@@ -193,30 +233,41 @@ class CookieClassifier:
         Returns:
             Ein Dictionary mit den klassifizierten Cookies nach Kategorien
         """
-        from ..database.handler import find_cookie_info
-        
         classified = {
-            "Strictly Necessary": [],
-            "Functional": [],
-            "Performance": [],
-            "Targeting": [],
-            "Other": []
+            "Necessary": [],
+            "Analytics": [],
+            "Marketing": [],
+            "Preferences": [],
+            "Unbekannt": []
         }
         
         for cookie in cookies:
             cookie_name = cookie.get('name', '')
             
             # Versuche, das Cookie in der Datenbank zu finden
-            cookie_info = find_cookie_info(cookie_name, database)
+            cookie_info = self.find_cookie_info(cookie_name, database)
             
-            if cookie_info and cookie_info.get('Category', '') != "Unknown":
+            if cookie_info:
                 # Cookie wurde in der Datenbank gefunden
-                category = self.map_database_category(cookie_info['Category'])
-                description = cookie_info.get('Description', 'Keine Beschreibung verfügbar.')
+                category = cookie_info.get('category', cookie_info.get('Category', 'Unbekannt'))
+                description = cookie_info.get('description', cookie_info.get('Description', 'Keine Beschreibung verfügbar.'))
                 classification_method = "database"
             else:
                 # Cookie nicht in der Datenbank gefunden, verwende Regeln
                 category = self.classify_by_rule(cookie)
+                
+                # Mappe die Regel-Kategorien auf die einfacheren Kategorien
+                if category == "Strictly Necessary":
+                    category = "Necessary"
+                elif category == "Performance":
+                    category = "Analytics"
+                elif category == "Functional":
+                    category = "Preferences"
+                elif category == "Targeting":
+                    category = "Marketing"
+                else:
+                    category = "Unbekannt"
+                    
                 description = self._generate_description(cookie, category)
                 classification_method = "rule"
             
@@ -225,6 +276,10 @@ class CookieClassifier:
             cookie['category'] = category
             cookie['classification_method'] = classification_method
             
+            # Sicherstellen, dass die Kategorie existiert
+            if category not in classified:
+                classified[category] = []
+                
             # Füge das Cookie zur richtigen Kategorie hinzu
             classified[category].append(cookie)
         

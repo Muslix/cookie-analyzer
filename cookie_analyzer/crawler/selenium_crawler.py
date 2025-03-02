@@ -5,7 +5,7 @@ Selenium-basierter Crawler für erweiterte Cookie-Analyse und Consent-Banner-Int
 import logging
 import time
 import tldextract
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -16,18 +16,251 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from typing import Dict, List, Set, Tuple, Any, Optional
+import random
+import os
 
 from .consent_manager import ConsentManager
 from ..utils.url import validate_url
 
 logger = logging.getLogger(__name__)
 
+# Liste von User-Agents für Rotation
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59"
+]
+
+class CookieCollector:
+    """Klasse zur allgemeinen Cookie-Erfassung."""
+    @staticmethod
+    def get_cookies(driver: webdriver.Chrome) -> List[Dict[str, Any]]:
+        selenium_cookies = driver.get_cookies()
+        return [
+            {
+                "name": cookie["name"],
+                "value": cookie["value"],
+                "domain": cookie.get("domain", ""),
+                "path": cookie.get("path", "/"),
+                "expires": cookie.get("expiry", -1),
+                "secure": cookie.get("secure", False),
+                "httpOnly": cookie.get("httpOnly", False),
+                "sameSite": cookie.get("sameSite", ""),
+                "source": "direct"
+            }
+            for cookie in selenium_cookies
+        ]
+
+    @staticmethod
+    def get_js_cookies(driver: webdriver.Chrome) -> List[Dict[str, Any]]:
+        try:
+            js_cookies = driver.execute_script("""
+                let allCookies = [];
+                document.cookie.split(';').forEach(function(cookie) {
+                    if (cookie.trim() !== '') {
+                        let parts = cookie.trim().split('=');
+                        let name = parts.shift();
+                        let value = parts.join('=');
+                        allCookies.push({
+                            name: name.trim(),
+                            value: value,
+                            domain: document.domain,
+                            path: '/',
+                            source: 'document.cookie'
+                        });
+                    }
+                });
+                return allCookies;
+            """)
+            return js_cookies or []
+        except Exception as e:
+            logger.error(f"Fehler beim Erfassen von JS-Cookies: {e}")
+            return []
+
+class IframeCookieCollector:
+    """Klasse zur Erfassung von Cookies aus iFrames."""
+    @staticmethod
+    def get_iframe_cookies(driver: webdriver.Chrome) -> List[Dict[str, Any]]:
+        all_cookies = []
+        try:
+            iframes = driver.find_elements(By.TAG_NAME, "iframe")
+            logger.info(f"Gefundene iFrames: {len(iframes)}")
+            for i, iframe in enumerate(iframes):
+                try:
+                    iframe_src = iframe.get_attribute("src")
+                    if not iframe_src:
+                        continue
+                    logger.info(f"Analysiere iFrame {i+1}/{len(iframes)}: {iframe_src}")
+                    driver.switch_to.frame(iframe)
+                    iframe_cookies = driver.execute_script("""
+                        let frameCookies = [];
+                        try {
+                            document.cookie.split(';').forEach(function(cookie) {
+                                if (cookie.trim() !== '') {
+                                    let parts = cookie.trim().split('=');
+                                    let name = parts.shift();
+                                    let value = parts.join('=');
+                                    frameCookies.push({
+                                        name: name.trim(),
+                                        value: value,
+                                        domain: document.domain,
+                                        path: '/',
+                                        source: 'iframe'
+                                    });
+                                }
+                            });
+                        } catch (e) {
+                            console.error("Fehler beim Extrahieren von iFrame-Cookies:", e);
+                        }
+                        return frameCookies;
+                    """)
+                    driver.switch_to.default_content()
+                    if iframe_cookies:
+                        for cookie in iframe_cookies:
+                            cookie["iframe_src"] = iframe_src
+                            all_cookies.append(cookie)
+                except Exception as e:
+                    logger.error(f"Fehler beim Verarbeiten von iFrame {i+1}: {e}")
+                    driver.switch_to.default_content()
+        except Exception as e:
+            logger.error(f"Fehler bei der iFrame-Analyse: {e}")
+            try:
+                driver.switch_to.default_content()
+            except:
+                pass
+        return all_cookies
+
+class YouTubeCookieCollector:
+    """Klasse zur spezifischen Erfassung von YouTube-Cookies."""
+    @staticmethod
+    def get_youtube_cookies(driver: webdriver.Chrome) -> List[Dict[str, Any]]:
+        youtube_cookies = []
+        try:
+            time.sleep(3)
+            all_cookies = driver.get_cookies()
+            for cookie in all_cookies:
+                domain = cookie.get("domain", "")
+                if "youtube" in domain or "google" in domain or "ytimg" in domain or "ggpht" in domain:
+                    youtube_cookies.append({
+                        "name": cookie["name"],
+                        "value": cookie["value"],
+                        "domain": domain,
+                        "path": cookie.get("path", "/"),
+                        "expires": cookie.get("expiry", -1),
+                        "secure": cookie.get("secure", False),
+                        "httpOnly": cookie.get("httpOnly", False),
+                        "source": "youtube_specific"
+                    })
+            try:
+                video_players = driver.find_elements(By.TAG_NAME, "video")
+                if video_players:
+                    driver.execute_script("arguments[0].play(); setTimeout(() => arguments[0].pause(), 1000);", video_players[0])
+                    time.sleep(2)
+                    new_cookies = driver.get_cookies()
+                    existing_names = {(cookie["name"], cookie.get("domain", "")) for cookie in youtube_cookies}
+                    for cookie in new_cookies:
+                        domain = cookie.get("domain", "")
+                        if ((cookie["name"], domain) not in existing_names and 
+                            ("youtube" in domain or "google" in domain or "ytimg" in domain or "ggpht" in domain)):
+                            cookie_dict = {
+                                "name": cookie["name"],
+                                "value": cookie["value"],
+                                "domain": domain,
+                                "path": cookie.get("path", "/"),
+                                "expires": cookie.get("expiry", -1),
+                                "secure": cookie.get("secure", False),
+                                "httpOnly": cookie.get("httpOnly", False),
+                                "source": "youtube_interaction"
+                            }
+                            youtube_cookies.append(cookie_dict)
+            except Exception as e:
+                logger.warning(f"Fehler bei der Interaktion mit YouTube-Player: {e}")
+        except Exception as e:
+            logger.error(f"Fehler beim Extrahieren der YouTube-Cookies: {e}")
+        return youtube_cookies
+
+class EcommerceCookieCollector:
+    """Klasse zur spezifischen Erfassung von E-Commerce-Cookies."""
+    @staticmethod
+    def get_ecommerce_cookies(driver: webdriver.Chrome) -> List[Dict[str, Any]]:
+        ecommerce_cookies = []
+        try:
+            time.sleep(3)
+            js_cookies = driver.execute_script("""
+                let allCookies = [];
+                for (let key in window) {
+                    if (typeof window[key] === 'object' && window[key] !== null) {
+                        if (key.toLowerCase().includes('cookie') || 
+                            key.toLowerCase().includes('storage') || 
+                            key.toLowerCase().includes('tracking')) {
+                            try {
+                                allCookies.push({
+                                    name: key,
+                                    value: JSON.stringify(window[key]),
+                                    domain: document.domain,
+                                    source: 'global_object'
+                                });
+                            } catch (e) {
+                            }
+                        }
+                    }
+                }
+                for (let i = 0; i < localStorage.length; i++) {
+                    let key = localStorage.key(i);
+                    if (key.toLowerCase().includes('cookie') || 
+                        key.toLowerCase().includes('track') || 
+                        key.toLowerCase().includes('cart') || 
+                        key.toLowerCase().includes('session')) {
+                        allCookies.push({
+                            name: key,
+                            value: localStorage.getItem(key),
+                            domain: document.domain,
+                            source: 'localStorage'
+                        });
+                    }
+                }
+                return allCookies;
+            """)
+            if js_cookies:
+                ecommerce_cookies.extend(js_cookies)
+            try:
+                product_elements = driver.find_elements(By.CSS_SELECTOR, 
+                    ".product, .item, .artikel, [class*='product'], [class*='artikel'], [id*='product']")
+                if product_elements:
+                    driver.execute_script("arguments[0].scrollIntoView(true);", product_elements[0])
+                    actions = webdriver.ActionChains(driver)
+                    actions.move_to_element(product_elements[0])
+                    actions.perform()  # Separate call to perform() to ensure actions are executed
+                    time.sleep(1)
+                    new_cookies = driver.get_cookies()
+                    existing_names = {(cookie["name"], cookie.get("domain", "")) for cookie in ecommerce_cookies if "name" in cookie and "domain" in cookie}
+                    for cookie in new_cookies:
+                        if (cookie["name"], cookie.get("domain", "")) not in existing_names:
+                            cookie_dict = {
+                                "name": cookie["name"],
+                                "value": cookie["value"],
+                                "domain": cookie.get("domain", ""),
+                                "path": cookie.get("path", "/"),
+                                "expires": cookie.get("expiry", -1),
+                                "secure": cookie.get("secure", False),
+                                "httpOnly": cookie.get("httpOnly", False),
+                                "source": "product_interaction"
+                            }
+                            ecommerce_cookies.append(cookie_dict)
+            except Exception as e:
+                logger.warning(f"Fehler bei der Interaktion mit Produktelementen: {e}")
+        except Exception as e:
+            logger.error(f"Fehler beim Extrahieren der E-Commerce-Cookies: {e}")
+        return ecommerce_cookies
+
 class SeleniumCookieCrawler:
     """Eine Klasse zum Crawlen von Webseiten mit Selenium und erweiterten Cookie-Funktionen."""
     
     def __init__(self, start_url: str, max_pages: int = 1, 
                 respect_robots: bool = True, interact_with_consent: bool = True,
-                headless: bool = True, webdriver_path: Optional[str] = None):
+                headless: bool = True, webdriver_path: Optional[str] = None,
+                user_data_dir: Optional[str] = None):
         """
         Initialisiert den Selenium-basierten Cookie-Crawler.
         
@@ -38,6 +271,7 @@ class SeleniumCookieCrawler:
             interact_with_consent (bool): Ob mit Cookie-Consent-Bannern interagiert werden soll.
             headless (bool): Ob der Browser im Headless-Modus laufen soll.
             webdriver_path (Optional[str]): Pfad zum Chromedriver.
+            user_data_dir (Optional[str]): Pfad zum Chrome-Benutzerprofil.
         """
         self.start_url = validate_url(start_url)
         self.max_pages = max_pages
@@ -45,6 +279,7 @@ class SeleniumCookieCrawler:
         self.interact_with_consent = interact_with_consent
         self.headless = headless
         self.webdriver_path = webdriver_path
+        self.user_data_dir = user_data_dir
         self.rp = self._load_robots_txt() if respect_robots else None
         self.consent_manager = ConsentManager()
         
@@ -59,19 +294,11 @@ class SeleniumCookieCrawler:
         base_url = f"https://{parsed_url.registered_domain}/robots.txt"
         rp = RobotFileParser()
         
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
+        options = self._get_chrome_options(headless=True)
         
         try:
             # Chromedriver konfigurieren
-            if self.webdriver_path:
-                service = Service(self.webdriver_path)
-                driver = webdriver.Chrome(service=service, options=options)
-            else:
-                driver = webdriver.Chrome(options=options)
+            driver = self._create_driver(options)
             
             driver.get(base_url)
             robots_txt = driver.page_source
@@ -88,6 +315,83 @@ class SeleniumCookieCrawler:
         except Exception as e:
             logger.warning(f"Fehler beim Laden der robots.txt: {e}")
             return None
+    
+    def _get_chrome_options(self, headless: bool = None) -> Options:
+        """
+        Erstellt optimierte Chrome-Optionen für bessere Cookie-Erfassung.
+        
+        Args:
+            headless (bool, optional): Ob der Browser im Headless-Modus laufen soll.
+                                      Wenn None, wird self.headless verwendet.
+        
+        Returns:
+            Options: Konfigurierte Chrome-Optionen.
+        """
+        if headless is None:
+            headless = self.headless
+            
+        options = Options()
+        if headless:
+            options.add_argument("--headless")
+        
+        # Grundlegende Konfiguration
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        
+        # Wichtig: Aktiviere Cookies und Javascript
+        options.add_argument("--enable-cookies")
+        options.add_argument("--enable-javascript")
+        
+        # Deaktiviere Cross-Origin-Einschränkungen für Third-Party-Cookies
+        options.add_argument("--disable-web-security")
+        options.add_argument("--allow-running-insecure-content")
+        options.add_argument("--disable-site-isolation-trials")
+        
+        # Browser-Fingerprinting verhindern
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        
+        # User-Agent rotieren
+        options.add_argument(f"--user-agent={random.choice(USER_AGENTS)}")
+        
+        # Verwende Benutzerprofil, falls angegeben
+        if self.user_data_dir:
+            options.add_argument(f"--user-data-dir={self.user_data_dir}")
+        
+        return options
+    
+    def _create_driver(self, options: Options = None) -> webdriver.Chrome:
+        """
+        Erstellt einen Chrome-WebDriver mit den angegebenen Optionen.
+        
+        Args:
+            options (Options, optional): Chrome-Optionen. Wenn None, werden Standardoptionen verwendet.
+            
+        Returns:
+            webdriver.Chrome: Der konfigurierte WebDriver.
+        """
+        if options is None:
+            options = self._get_chrome_options()
+            
+        if self.webdriver_path:
+            service = Service(self.webdriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Chrome(options=options)
+            
+        # Stealthier Chrome durch Manipulation des window.navigator-Objekts
+        driver.execute_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            window.navigator.chrome = {
+                runtime: {}
+            };
+        """)
+        
+        return driver
     
     def is_allowed_by_robots(self, url: str) -> bool:
         """
@@ -231,7 +535,7 @@ class SeleniumCookieCrawler:
 
     def get_cookies_and_storage(self, driver: webdriver.Chrome, url: str) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
-        Erfasst Cookies und Storage-Daten einer Seite.
+        Erfasst Cookies und Storage-Daten einer Seite, einschließlich Third-Party-Cookies und iFrame-Cookies.
         
         Args:
             driver (webdriver.Chrome): Der Selenium WebDriver.
@@ -240,20 +544,39 @@ class SeleniumCookieCrawler:
         Returns:
             Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]: Cookies und Storage-Daten.
         """
-        # Cookies abrufen
-        selenium_cookies = driver.get_cookies()
-        cookies = [
-            {
-                "name": cookie["name"],
-                "value": cookie["value"],
-                "domain": cookie.get("domain", ""),
-                "path": cookie.get("path", "/"),
-                "expires": cookie.get("expiry", -1),
-                "secure": cookie.get("secure", False),
-                "httpOnly": cookie.get("httpOnly", False)
-            }
-            for cookie in selenium_cookies
-        ]
+        all_cookies = []
+        
+        all_cookies.extend(CookieCollector.get_cookies(driver))
+        all_cookies.extend(CookieCollector.get_js_cookies(driver))
+        all_cookies.extend(IframeCookieCollector.get_iframe_cookies(driver))
+        
+        # 4. YouTube-spezifische Cookies extrahieren (wenn YouTube erkannt wird)
+        if "youtube.com" in url or "youtube.de" in url or "youtube" in driver.page_source.lower():
+            try:
+                logger.info("YouTube erkannt - extrahiere YouTube-spezifische Cookies")
+                youtube_cookies = YouTubeCookieCollector.get_youtube_cookies(driver)
+                
+                # YouTube-Cookies zu allen Cookies hinzufügen
+                existing_yt_names = {(cookie["name"], cookie.get("domain", "")) for cookie in all_cookies}
+                for yt_cookie in youtube_cookies:
+                    if (yt_cookie["name"], yt_cookie.get("domain", "")) not in existing_yt_names:
+                        all_cookies.append(yt_cookie)
+            except Exception as e:
+                logger.error(f"Fehler beim Extrahieren der YouTube-Cookies: {e}")
+        
+        # 5. E-Commerce-spezifische Cookies (wie für Mindfactory) extrahieren
+        if "mindfactory.de" in url or "shop" in url.lower() or "produkt" in driver.page_source.lower():
+            try:
+                logger.info("E-Commerce-Seite erkannt - extrahiere spezifische Cookies")
+                shop_cookies = EcommerceCookieCollector.get_ecommerce_cookies(driver)
+                
+                # Shop-Cookies zu allen Cookies hinzufügen
+                existing_shop_names = {(cookie["name"], cookie.get("domain", "")) for cookie in all_cookies}
+                for shop_cookie in shop_cookies:
+                    if (shop_cookie["name"], shop_cookie.get("domain", "")) not in existing_shop_names:
+                        all_cookies.append(shop_cookie)
+            except Exception as e:
+                logger.error(f"Fehler beim Extrahieren der E-Commerce-Cookies: {e}")
         
         # Storage-Daten abrufen
         local_storage = self.get_local_storage(driver)
@@ -269,8 +592,8 @@ class SeleniumCookieCrawler:
         
         all_storage = {url: storage}
         
-        return cookies, all_storage
-    
+        return all_cookies, all_storage
+        
     def scan_single_page(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
         Scannt nur die eingegebene Seite auf Cookies und Storage-Daten, vor und nach der Consent-Interaktion.
@@ -286,19 +609,10 @@ class SeleniumCookieCrawler:
         post_consent_storage = {}
         
         # Chrome-Optionen konfigurieren
-        options = Options()
-        if self.headless:
-            options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
+        options = self._get_chrome_options()
         
         # Chromedriver konfigurieren
-        if self.webdriver_path:
-            service = Service(self.webdriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            driver = webdriver.Chrome(options=options)
+        driver = self._create_driver(options)
         
         try:
             # Seite laden
@@ -371,19 +685,10 @@ class SeleniumCookieCrawler:
         post_consent_storage = {}
         
         # Chrome-Optionen konfigurieren
-        options = Options()
-        if self.headless:
-            options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
+        options = self._get_chrome_options()
         
         # Chromedriver konfigurieren
-        if self.webdriver_path:
-            service = Service(self.webdriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
-        else:
-            driver = webdriver.Chrome(options=options)
+        driver = self._create_driver(options)
         
         try:
             # Erst nur die Startseite scannen mit dem zweistufigen Prozess
