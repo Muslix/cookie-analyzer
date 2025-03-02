@@ -57,20 +57,33 @@ class CookieCollector:
         try:
             js_cookies = driver.execute_script("""
                 let allCookies = [];
-                document.cookie.split(';').forEach(function(cookie) {
-                    if (cookie.trim() !== '') {
-                        let parts = cookie.trim().split('=');
-                        let name = parts.shift();
-                        let value = parts.join('=');
-                        allCookies.push({
-                            name: name.trim(),
-                            value: value,
-                            domain: document.domain,
-                            path: '/',
-                            source: 'document.cookie'
-                        });
+                try {
+                    // Überprüfe, ob document.cookie definiert ist und nicht null ist
+                    if (document.cookie !== undefined && document.cookie !== null) {
+                        // Überprüfe, ob document.cookie ein String ist
+                        const cookieStr = String(document.cookie);
+                        
+                        // Nur spliten, wenn es nicht leer ist
+                        if (cookieStr && cookieStr.trim() !== '') {
+                            cookieStr.split(';').forEach(function(cookie) {
+                                if (cookie.trim() !== '') {
+                                    let parts = cookie.trim().split('=');
+                                    let name = parts.shift();
+                                    let value = parts.join('=');
+                                    allCookies.push({
+                                        name: name.trim(),
+                                        value: value,
+                                        domain: document.domain || window.location.hostname,
+                                        path: '/',
+                                        source: 'document.cookie'
+                                    });
+                                }
+                            });
+                        }
                     }
-                });
+                } catch (e) {
+                    console.error("Fehler beim Zugriff auf document.cookie:", e);
+                }
                 return allCookies;
             """)
             return js_cookies or []
