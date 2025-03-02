@@ -43,23 +43,36 @@ def mock_selenium_driver():
         "return window._cookieMonitor.getCookies();": [
             {"name": "dynamic_cookie", "value": "dynamic_value"}
         ],
-        # JS-Cookies
+        # Match the actual JS code pattern used in CookieCollector.get_js_cookies
         """
                 let allCookies = [];
-                document.cookie.split(';').forEach(function(cookie) {
-                    if (cookie.trim() !== '') {
-                        let parts = cookie.trim().split('=');
-                        let name = parts.shift();
-                        let value = parts.join('=');
-                        allCookies.push({
-                            name: name.trim(),
-                            value: value,
-                            domain: document.domain,
-                            path: '/',
-                            source: 'document.cookie'
-                        });
+                try {
+                    // Überprüfe, ob document.cookie definiert ist und nicht null ist
+                    if (document.cookie !== undefined && document.cookie !== null) {
+                        // Überprüfe, ob document.cookie ein String ist
+                        const cookieStr = String(document.cookie);
+                        
+                        // Nur spliten, wenn es nicht leer ist
+                        if (cookieStr && cookieStr.trim() !== '') {
+                            cookieStr.split(';').forEach(function(cookie) {
+                                if (cookie.trim() !== '') {
+                                    let parts = cookie.trim().split('=');
+                                    let name = parts.shift();
+                                    let value = parts.join('=');
+                                    allCookies.push({
+                                        name: name.trim(),
+                                        value: value,
+                                        domain: document.domain || window.location.hostname,
+                                        path: '/',
+                                        source: 'document.cookie'
+                                    });
+                                }
+                            });
+                        }
                     }
-                });
+                } catch (e) {
+                    console.error("Fehler beim Zugriff auf document.cookie:", e);
+                }
                 return allCookies;
             """: [
             {"name": "js_cookie", "value": "js_value", "domain": "example.com", "path": "/", "source": "document.cookie"}

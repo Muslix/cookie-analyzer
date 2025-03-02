@@ -1,44 +1,36 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# Virtualenv
-venv/
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Environments
+.env
+.venv
 env/
+venv/
 ENV/
 
-# IDE files
+# IDE specific files
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Logs
-*.log
+# Project specific
 cookie_analyzer.log
-
-# OS specific files
 .DS_Store
-Thumbs.db
-
-# Local configurations
-.env
