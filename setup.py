@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cookie_analyzer",  # Korrigiert von "cookie_checker" zu "cookie_analyzer"
-    version="1.0.0",
+    version="1.0.1",
     description="Ein Tool zur Cookie-Analyse basierend auf der Open Cookie Database",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
