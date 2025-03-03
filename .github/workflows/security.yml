@@ -32,7 +32,7 @@ jobs:
           
       - name: Run Safety (dependency vulnerability scanner)
         run: |
-          safety check -r requirements.txt --json > safety-results.json || true
+          safety check --output json > safety-results.json || true
           
       - name: Upload security scan results
         uses: actions/upload-artifact@v3
@@ -45,11 +45,12 @@ jobs:
   dependency-review:
     runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         
       - name: Dependency Review
         uses: actions/dependency-review-action@v3
-        with:
-          fail-on-severity: critical

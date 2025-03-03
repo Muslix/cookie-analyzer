@@ -1,4 +1,4 @@
-name: Python Package Publication
+name: Build Python Package
 
 on:
   release:
@@ -6,15 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., v1.0.0)'
+        description: 'Version to build (e.g., v1.0.0)'
         required: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-      id-token: write  # For trusted publishing
 
     steps:
     - uses: actions/checkout@v3
@@ -32,7 +31,17 @@ jobs:
     - name: Build package
       run: python -m build
         
-    - name: Publish package to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+    - name: Check package
+      run: twine check dist/*
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
       with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
+        name: python-package-distributions
+        path: dist/
+        
+    # PyPI publication step removed to avoid requiring API key
+    # - name: Publish package to PyPI
+    #   uses: pypa/gh-action-pypi-publish@release/v1
+    #   with:
+    #     password: ${{ secrets.PYPI_API_TOKEN }}

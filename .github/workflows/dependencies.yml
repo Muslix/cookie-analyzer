@@ -33,11 +33,23 @@ jobs:
           else
             pip-compile --upgrade-package "*" requirements.txt
           fi
+          
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --exit-code requirements.txt; then
+            echo "No changes detected in requirements.txt"
+            echo "changes_detected=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in requirements.txt"
+            echo "changes_detected=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Pull Request
+        if: steps.changes.outputs.changes_detected == 'true'
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}  # Uses the default GitHub token
           commit-message: "build: update dependencies"
           title: "build: update dependencies"
           body: |

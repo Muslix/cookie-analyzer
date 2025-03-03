@@ -24,7 +24,8 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # The GITHUB_TOKEN is automatically provided by GitHub Actions
+          token: ${{ github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -42,25 +43,34 @@ jobs:
           git config --local user.name "GitHub Action"
 
       - name: Bump version
+        id: bump_version
         run: |
           bump_type=${{ github.event.inputs.bump_type }}
+          # Get current version before bump
+          PREVIOUS_VERSION=$(grep -Po "__version__ = \"\K[^\"]+" cookie_analyzer/__init__.py)
+          echo "PREVIOUS_VERSION=$PREVIOUS_VERSION" >> $GITHUB_ENV
+          
+          # Run bumpversion
           bumpversion --commit --tag $bump_type
+          
+          # Get new version after bump
+          NEW_VERSION=$(grep -Po "__version__ = \"\K[^\"]+" cookie_analyzer/__init__.py)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_TAG=v$NEW_VERSION" >> $GITHUB_ENV
 
       - name: Push changes
         run: |
           git push --follow-tags origin HEAD:${GITHUB_REF}
 
+      # Using newer softprops/action-gh-release instead of deprecated actions/create-release
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.NEW_TAG }}
-          release_name: Release ${{ env.NEW_TAG }}
+          tag_name: v${{ env.NEW_VERSION }}
+          name: Release v${{ env.NEW_VERSION }}
           body: |
             ## What's Changed
-            * Automated version bump to ${{ env.NEW_TAG }}
+            * Automated version bump to v${{ env.NEW_VERSION }}
             
             ## Full Changelog
-            https://github.com/${{ github.repository }}/compare/${{ env.PREVIOUS_TAG }}...${{ env.NEW_TAG }}
+            https://github.com/${{ github.repository }}/compare/v${{ env.PREVIOUS_VERSION }}...v${{ env.NEW_VERSION }}
