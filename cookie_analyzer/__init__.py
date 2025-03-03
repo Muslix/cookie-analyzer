@@ -12,7 +12,7 @@ from .utils.url import validate_url
 from .utils.export import save_results_as_json
 from .services.initializer import initialize_services
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __all__ = [
     'CookieAnalyzer',
     'crawl_website',
